@@ -1,0 +1,59 @@
+- name: Install Supervisor
+  apk: name=supervisor state=installed
+- name: Start Supervisor
+  service: name=supervisord state=started
+
+- name: Remove php instance users in passwd
+  lineinfile: dest="/etc/passwd" regexp="^php_" state=absent
+  when: remove_stale
+- name: Remove php instance users in shadow
+  lineinfile: dest="/etc/shadow" regexp="^php_" state=absent
+  when: remove_stale
+- name: Remove php-fpm configs
+  file: path=/etc/php/php-fpm state=absent
+  when: remove_stale
+- name: Remove supervisor configs
+  file: path=/etc/supervisor.d state=absent
+  notify: Reload supervisor configs
+  when: remove_stale
+
+- name: Create Supervisor conf.d
+  file: path=/etc/supervisor.d state=directory
+- name: Create config directory
+  file: path=/etc/php/php-fpm state=directory owner=root group=root
+- name: Create log directory
+  file: path=/var/log/php-fpm state=directory owner=root group=root mode=1777
+
+- name: Create php instance user (passwd)
+  lineinfile: dest="/etc/passwd" regexp="^php_{{ item.name }}" line="php_{{ item.name }}:x:{{ item.uid }}:65534:php instance {{ item.name }}:/dev/null:/bin/sh"
+  with_items: "{{ instances }}"
+- name: Create php instance user (shadow)
+  lineinfile: dest="/etc/shadow" regexp="^php_{{ item.name }}" line="php_{{ item.name }}:!::0:::::"
+# Better way, but does not work on all systems.
+#  user: name="{{ item.user }}" comment="PHP-FPM instance user" group=nobody state=present
+  with_items: "{{ instances }}"
+
+- name: Copy PHP config
+  command: cp /etc/php/php-fpm.conf "/etc/php/php-fpm/{{ item.name }}.conf" creates="/etc/php/php-fpm/{{ item.name }}.conf"
+  with_items: "{{ instances }}"
+  notify: Reload supervisor configs
+- name: Add listen line to PHP config
+  lineinfile: dest="/etc/php/php-fpm/{{ item.name }}.conf" regexp="^listen\s*=" line="listen = 0.0.0.0:{{ item.port }}"
+  with_items: "{{ instances }}"
+  notify: Reload supervisor configs
+- name: Change error_log line in PHP config
+  replace: dest="/etc/php/php-fpm/{{ item.name }}.conf" regexp="^error_log.*$" replace="error_log = /var/log/php-fpm/{{ item.name }}.log"
+  with_items: "{{ instances }}"
+  notify: Reload supervisor configs
+
+- name: Create supervisor configs
+  template: dest="/etc/supervisor.d/php_{{ item.name }}.ini" src="supervisorconf.ini"
+  with_items: "{{ instances }}"
+  notify: Reload supervisor configs
+
+- name: Chown files
+  file: path="{{ item.1 }}" owner="php_{{ item.0.name }}" recurse=yes
+  with_subelements:
+    - "{{ instances }}"
+    - www_roots
+  when: item.0.chown

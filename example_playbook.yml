@@ -1,0 +1,13 @@
+---
+- hosts: my_php_host
+  roles: 
+    - php-fpm
+  vars:
+    instances:
+      - my_domain_test:      # can be anything
+        name: my_domain_test # name will be used for configs and username
+        port: 10000          # fastcgi port
+        uid:  10000          # uid for the user
+        www_roots: ['/var/www/my_domain.test', '/var/www/subdomain.my_domain.test'] # list of folders for the process (used for chown)
+        chown: false # if the www_root folders should belong to the php user
+    remove_stale: true # remove all instances, which are no longer listed above? Be careful, there is no undo.
